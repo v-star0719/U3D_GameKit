@@ -1,5 +1,5 @@
 ﻿using UnityEngine;
-using UnityEngine.SceneManagement;
+//using UnityEngine.SceneManagement;
 using System.Collections;
 
 public class PlayIntroVideo : MonoBehaviour
@@ -13,7 +13,7 @@ public class PlayIntroVideo : MonoBehaviour
 
 	void OnIntroVideoPlayEnd()
 	{
-		//Application.LoadLevel("Game");
-		SceneManager.LoadScene("Game");
+		Application.LoadLevel("Game");
+		//SceneManager.LoadScene("Game");
 	}
 }
