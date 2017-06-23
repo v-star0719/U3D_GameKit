@@ -4,6 +4,9 @@ using System.Collections.Generic;
 
 public class UIGridEx : MonoBehaviour
 {
+	const float MAX_PADDING = 100;//the distance that user can drag moved when no new item can show
+	const float SPRING_TIME = 1;
+
 	public enum EmDirection
 	{
 		Horizontal,
@@ -27,6 +30,8 @@ public class UIGridEx : MonoBehaviour
 
 	//所有列表项从这个克隆，这个项也会使用
 	public UIGridExItemCtrlBase templateItem;
+	
+	public AnimationCurve springCurve;
 
 	public LinkedList<UIGridExItemCtrlBase> itemList = new LinkedList<UIGridExItemCtrlBase>();
 
@@ -36,6 +41,13 @@ public class UIGridEx : MonoBehaviour
 	private System.Object userData;
 	private int dataCount = 0;
 
+	private Vector2 lastDragDelta;
+
+	private bool isSpring = false;
+	private float springDist = 0;
+	private float preFrameSprintPos = 0;
+	private float timer = 0;
+
 	// Use this for initialization
 	void Start () {
 	
@@ -43,7 +55,21 @@ public class UIGridEx : MonoBehaviour
 	
 	// Update is called once per frame
 	void Update () {
-	
+		Update_Spring();
+	}
+
+	void Update_Spring()
+	{
+		if(!isSpring) return;
+
+		timer += Time.deltaTime;
+		float f = timer/SPRING_TIME;
+		f = springCurve.Evaluate(f)*springDist;
+		OnDrag(new Vector2(0, f - preFrameSprintPos));
+		preFrameSprintPos = f;
+
+		if(timer >= SPRING_TIME)
+			isSpring = false;
 	}
 
 	//isVariableHeight的话只能是单行或者单列
@@ -65,21 +91,23 @@ public class UIGridEx : MonoBehaviour
 			maxRowCount = (int)(clipRegion.z/cellWith) + 2;//最下面多出两个，一个是部分显示的，一个是为了平滑滚动额外增加的
 		int maxNoScrollItemCount = (int)(clipRegion.z/cellWith) * itemPerRow;
 
-		int xCount = 0;
-		int yCount = 0;
+		int xIndex = 0;
+		int yIndex = 0;
 		Vector3 pos = startPos;
 		for(int i=0; i<_dataCount; i++)
 		{
 			UIGridExItemCtrlBase item = GetItem();
 			item.transform.localPosition = pos;
 			item.index = i;
+			item.xIndex = xIndex;
+			item.yIndex = yIndex;
 			itemList.AddLast(item);
 			item.SetData(userData);
 
-			xCount++;
+			xIndex++;
 
 			//下一个item的位置
-			if(xCount < itemPerRow)
+			if(xIndex < itemPerRow)
 			{
 				pos.x += cellWith;
 			}
@@ -87,8 +115,8 @@ public class UIGridEx : MonoBehaviour
 			{
 				pos.x = startPos.x;
 				pos.y -= cellHeight;
-				xCount = 0;
-				yCount++;
+				xIndex = 0;
+				yIndex++;
 			}
 		}
 
@@ -117,7 +145,41 @@ public class UIGridEx : MonoBehaviour
 
 	public void OnDrag(Vector2 delta)
 	{
-		//刷新位置
+		lastDragDelta = delta;
+
+		if(dir == EmDirection.Horizontal) delta.y = 0;
+		else if(dir == EmDirection.Vertical) delta.x = 0;
+
+		if(dir == EmDirection.Vertical)
+		{
+			if(delta.y < -cellHeight) delta.y = -cellHeight;
+			if(delta.y > cellHeight) delta.y = cellHeight;
+
+			Vector4 clipRegion = clipPanel.finalClipRegion;
+			if(delta.y > 0)
+			{
+				LinkedListNode<UIGridExItemCtrlBase> node2 = itemList.Last;
+				float bottom = clipRegion.y - clipRegion.w * 0.5f;
+				float padding = node2.Value.transform.localPosition.y - bottom;
+				delta.y = Mathf.Lerp(delta.y, 0, padding/MAX_PADDING);
+			}
+			else
+			{
+				LinkedListNode<UIGridExItemCtrlBase> node2 = itemList.First;
+				float top = clipRegion.y + clipRegion.w * 0.5f;
+				float padding = top - node2.Value.transform.localPosition.y;
+
+				//predict wether the first item will move below the padding line
+				float itemBottom = node2.Value.transform.localPosition.y + delta.y - cellHeight*0.5f;
+				if(itemBottom < top - MAX_PADDING)
+					delta.y = (top - MAX_PADDING) - (node2.Value.transform.localPosition.y - cellHeight*0.5f);
+
+				delta.y = Mathf.Lerp(delta.y, 0, padding/MAX_PADDING);
+			}
+		}
+
+
+		//update position
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
 		while(node != null)
 		{
@@ -125,6 +187,7 @@ public class UIGridEx : MonoBehaviour
 			node = node.Next;
 		}
 
+		//handle vertically move
 		if(delta.y > 0)//move up
 		{
 			RecycleTop();
@@ -135,15 +198,36 @@ public class UIGridEx : MonoBehaviour
 			RecyleBottom();
 			AddToTop();
 		}
-		
+	}
+
+	public void OnDragEnd()
+	{
+		if(lastDragDelta.y < 0)
+		{
+			LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
+			Vector4 clipRegion = clipPanel.finalClipRegion;
+			float top = clipRegion.y + clipRegion.w * 0.5f - cellHeight*0.5f;
+			springDist = top - node.Value.transform.localPosition.y;
+		}
+		else
+		{
+			LinkedListNode<UIGridExItemCtrlBase> node = itemList.Last;
+			Vector4 clipRegion = clipPanel.finalClipRegion;
+			float bottom = clipRegion.y - clipRegion.w * 0.5f + cellHeight*0.5f;
+			springDist = bottom - node.Value.transform.localPosition.y;
+		}
+		isSpring = true;
+		timer = 0;
+		preFrameSprintPos = 0;
 	}
 
 	//the line just out of the clip region is reserved, other lines will be recycled
 	void RecycleTop()
 	{
+		if(itemList.Count == 0) return;
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
 
-		int line = node.Value.yIndex;
+		int yIndex = node.Value.yIndex;
 		Vector4 clipRegion = clipPanel.finalClipRegion;
 		float top = clipRegion.y + clipRegion.w * 0.5f;
 		while(node != null)
@@ -151,23 +235,24 @@ public class UIGridEx : MonoBehaviour
 			if(node.Value.transform.localPosition.y > top + cellHeight * 1.5f)
 			{
 				node.Value.transform.localPosition =  new Vector3(float.MaxValue, 0, 0);
-				itemList.Remove(node);
-				cachedItemList.AddLast(node);// recycle it
-				Debug.Log("recycle top " + cachedItemList.Count);
+				LinkedListNode<UIGridExItemCtrlBase> delNode = node;
+				node = node.Next;
+				itemList.Remove(delNode);
+				cachedItemList.AddLast(delNode);// recycle it
+				Debug.LogFormat("recycle top, item{0}, cachedItemCount = {1}", node.Value.index, cachedItemList.Count);
 			}
 			else
 				break;
-
-			node = node.Next;
 		}
 	}
 
 	//the line just out of the clip region is reserved, other lines will be recycled.
 	void RecyleBottom()
 	{
+		if(itemList.Count == 0) return;
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.Last;
 
-		int line = node.Value.yIndex;
+		int yIndex = node.Value.yIndex;
 		Vector4 clipRegion = clipPanel.finalClipRegion;
 		float bottom = clipRegion.y - clipRegion.w * 0.5f;
 		while(node != null)
@@ -175,20 +260,21 @@ public class UIGridEx : MonoBehaviour
 			if(node.Value.transform.localPosition.y < bottom - cellHeight * 1.5f)
 			{
 				node.Value.transform.localPosition =  new Vector3(float.MaxValue, 0, 0);//move away
-				itemList.Remove(node);
-				cachedItemList.AddLast(node);// recycle it
-				Debug.Log("recycle bottom " + cachedItemList.Count);
+				LinkedListNode<UIGridExItemCtrlBase> delNode = node;
+				node = node.Previous;
+				itemList.Remove(delNode);
+				cachedItemList.AddLast(delNode);// recycle it
+				Debug.LogFormat("recycle bottom, item{0}, cachedItemCount = {1}", node.Value.index, cachedItemList.Count);
 			}
 			else
 				break;
-
-			node = node.Previous;
 		}
 	}
 
 	//if the last line is just out side the region, then add new line after it.
 	void AddToBottom()
 	{
+		if(itemList.Count == 0) return;
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.Last;
 		if(node.Value.index == dataCount-1) return;
 		
@@ -196,13 +282,15 @@ public class UIGridEx : MonoBehaviour
 		float bottom = clipRegion.y - clipRegion.w * 0.5f;
 		if(node.Value.transform.localPosition.y > bottom - cellHeight * 0.5f)
 		{
-			Vector3 pos = node.Value.transform.localPosition;
+			Vector3 pos = node.Value.transform.localPosition;//this node must be line end
 			pos.x = startPos.x;
 			pos.y -= cellHeight;
 			for(int i=1; i<=itemPerRow; i++)
 			{
 				UIGridExItemCtrlBase item = GetItem();
 				item.index = node.Value.index + i;
+				item.xIndex = i - 1;
+				item.yIndex = node.Value.yIndex;
 				item.transform.localPosition = pos;
 				pos.x += cellWith;
 				item.SetData(userData);
@@ -215,6 +303,7 @@ public class UIGridEx : MonoBehaviour
 	//if the last line is just out side the region, then add new line after it.
 	void AddToTop()
 	{
+		if(itemList.Count == 0) return;
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
 		if(node.Value.index == 0) return;
 
@@ -222,12 +311,15 @@ public class UIGridEx : MonoBehaviour
 		float top = clipRegion.y + clipRegion.w * 0.5f;
 		if(node.Value.transform.localPosition.y < top + cellHeight * 0.5f)
 		{
-			Vector3 pos = node.Value.transform.localPosition;
+			Vector3 pos = node.Value.transform.localPosition;//this node must be line begin
+			pos.x += cellWith*(itemPerRow-1);
 			pos.y += cellHeight;
 			for(int i=0; i<itemPerRow; i++)
 			{
 				UIGridExItemCtrlBase item = GetItem();
 				item.index = node.Value.index - i - 1;
+				item.xIndex = itemPerRow - i - 1;
+				item.yIndex = node.Value.yIndex - 1;
 				item.transform.localPosition = pos;
 				pos.x -= cellWith;
 				item.SetData(userData);
