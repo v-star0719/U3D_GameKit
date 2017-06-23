@@ -26,4 +26,11 @@ public class UIGridExItemCtrlBase : MonoBehaviour
 		if(exGrid != null)
 			exGrid.OnDrag(delta);
 	}
+
+	public virtual void SetData(System.Object userData)
+	{
+		UILabel label = GetComponentInChildren<UILabel>();
+		if(label != null)
+			label.text = index.ToString();
+	}
 }
