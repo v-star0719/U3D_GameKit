@@ -16,7 +16,7 @@ public class TestExGrid : MonoBehaviour
 		if(testBtn)
 		{
 			testBtn = false;
-			exGrid.SetGrid(itemCount, null, false);
+			exGrid.SetGrid(itemCount, null);
 		}
 	}
 }

@@ -13,6 +13,12 @@ public class UIGridEx : MonoBehaviour
 		Vertical,
 	}
 
+	public enum EmPivot
+	{
+		TopCenter,
+		TopLeft
+	}
+
 	public UIPanel clipPanel;
 
 	//单元格尺寸
@@ -23,10 +29,14 @@ public class UIGridEx : MonoBehaviour
 	public int itemPerRow = 0;
 	public int itemPerCol = 0;
 
+	public bool isVariableWidth = false;
+	public bool isVariableHeight = false;
+
 	//滚动位置
 	private Vector3 scrollPos;
 
 	public EmDirection dir;
+	public EmPivot pivot;
 
 	//所有列表项从这个克隆，这个项也会使用
 	public UIGridExItemCtrlBase templateItem;
@@ -37,11 +47,21 @@ public class UIGridEx : MonoBehaviour
 
 	private LinkedList<UIGridExItemCtrlBase> cachedItemList = new LinkedList<UIGridExItemCtrlBase>();//回收的item项在这里，以便重复利用，只增不减。尾进头出。
 
+	private bool isInited = false;
+	private Vector4 clipRegion;
+	private float clipRegionLeft;
+	private float clipRegionRight;
+	private float clipRegionTop;
+	private float clipRegionBottom;
+
+
 	private Vector3 startPos = Vector3.zero;
 	private System.Object userData;
 	private int dataCount = 0;
+	private bool isFit = false;
 
 	private Vector2 lastDragDelta;
+	//private vec
 
 	private bool isSpring = false;
 	private float springDist = 0;
@@ -72,56 +92,118 @@ public class UIGridEx : MonoBehaviour
 			isSpring = false;
 	}
 
-	//isVariableHeight的话只能是单行或者单列
-	public void SetGrid(int _dataCount, System.Object _userData, bool isVariableHeight)
+	void Init()
 	{
-		userData = _userData;
-		dataCount = _dataCount;
+		if(isInited) return;
+
 		if(cachedItemList.Count == 0 && itemList.Count == 0)
 		{
-			templateItem.exGrid = this;
 			cachedItemList.AddLast(templateItem);
 		}
 
-		Vector3 startPos = Vector3.zero;
-		Vector4 clipRegion = clipPanel.finalClipRegion;
+		//the center and offser of panel clipRegion is all vector3.zero
+		clipRegion = clipPanel.finalClipRegion;
+		clipRegionRight = clipRegion.z * 0.5f;
+		clipRegionLeft = -clipRegionRight;
+		clipRegionTop = clipRegion.w * 0.5f;
+		clipRegionBottom = -clipRegionTop;
 
-		int maxRowCount = 0;
-		if(dir == EmDirection.Vertical)
-			maxRowCount = (int)(clipRegion.z/cellWith) + 2;//最下面多出两个，一个是部分显示的，一个是为了平滑滚动额外增加的
-		int maxNoScrollItemCount = (int)(clipRegion.z/cellWith) * itemPerRow;
+		isInited = true;
+	}
+
+	//isVariableHeight的话只能是单行或者单列
+	public void SetGrid(int _dataCount, System.Object _userData)
+	{
+		Init();
+
+		if(isVariableHeight && itemPerRow != 1)
+		{
+			itemPerRow = 1;
+			Debug.LogError("itemPerRow must be 1, if it is variable height");
+		}
+
+		userData = _userData;
+		dataCount = _dataCount;
+
+		RecycleAllItems();
+
+		
 
 		int xIndex = 0;
 		int yIndex = 0;
-		Vector3 pos = startPos;
+		Vector3 pos = Vector3.zero;
+		bool isChaneLine = false;
 		for(int i=0; i<_dataCount; i++)
 		{
 			UIGridExItemCtrlBase item = GetItem();
-			item.transform.localPosition = pos;
-			item.index = i;
-			item.xIndex = xIndex;
-			item.yIndex = yIndex;
-			itemList.AddLast(item);
+			item.Init(i, xIndex, yIndex, cellWith, cellHeight, this);
 			item.SetData(userData);
+			item.Prepare();
+
+			//calculate start pos here, because in variable height mode, the first item's height is confirmed now
+			if(i == 0)
+			{
+				if(pivot == EmPivot.TopCenter)
+				{
+					startPos.x = (1 - itemPerRow) * item.halfHeight;//it is:  -itemPerRow * cellWith*0.5f + cellWith * 0.5f;
+					startPos.y = clipRegionTop - item.halfHeight;
+				}
+				else if(pivot == EmPivot.TopLeft)
+				{
+					startPos.x = clipRegionLeft + item.halfWidth;
+					startPos.y = clipRegionTop - item.halfHeight;
+				}
+				pos = startPos;
+			}
+
+			if(isChaneLine)
+			{
+				pos.y -= item.halfHeight;//cur item's half height, and next item's half height
+				isChaneLine = false;
+			}
+
+			item.transform.localPosition = pos;
+			itemList.AddLast(item);
 
 			xIndex++;
 
 			//下一个item的位置
 			if(xIndex < itemPerRow)
 			{
-				pos.x += cellWith;
+				pos.x += item.width;
 			}
 			else
 			{
 				pos.x = startPos.x;
-				pos.y -= cellHeight;
+				pos.y -= item.halfHeight;//cur item's half height, and next item's half height
 				xIndex = 0;
 				yIndex++;
+				isChaneLine = true;
+
+				//if the last item's bottom is out of clip region, stop show item
+				if(item.bottom < clipRegionBottom)
+					break;
 			}
 		}
 
-		if(isVariableHeight)
+		isFit = false;
+		if(itemList.Count > 0)
 		{
+			UIGridExItemCtrlBase item = itemList.Last.Value;
+			isFit = item.bottom >= clipRegionBottom && itemList.Count == dataCount;
+		}
+	}
+
+	void RecycleAllItems()
+	{
+		LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
+		while(node != null)
+		{
+			LinkedListNode<UIGridExItemCtrlBase> recycleNode = node;
+			node.Value.transform.localPosition =  new Vector3(float.MaxValue, 0, 0);//move away
+			node = node.Next;
+			itemList.Remove(recycleNode);
+			cachedItemList.AddLast(recycleNode);
 		}
 	}
 
@@ -133,7 +215,6 @@ public class UIGridEx : MonoBehaviour
 			item = GameObject.Instantiate<UIGridExItemCtrlBase>(templateItem);
 			item.transform.parent = transform;
 			item.transform.localScale = Vector3.one;
-			item.exGrid = this;
 		}
 		else
 		{
@@ -143,41 +224,53 @@ public class UIGridEx : MonoBehaviour
 		return item;
 	}
 
+	public void OnDragStart()
+	{
+		isSpring = false;
+	}
+
 	public void OnDrag(Vector2 delta)
 	{
-		lastDragDelta = delta;
+		if(dir == EmDirection.Vertical && delta.y != 0)
+			lastDragDelta = delta;
 
 		if(dir == EmDirection.Horizontal) delta.y = 0;
 		else if(dir == EmDirection.Vertical) delta.x = 0;
 
-		if(dir == EmDirection.Vertical)
+		if(!isSpring)
 		{
-			if(delta.y < -cellHeight) delta.y = -cellHeight;
-			if(delta.y > cellHeight) delta.y = cellHeight;
-
-			Vector4 clipRegion = clipPanel.finalClipRegion;
-			if(delta.y > 0)
+			if(dir == EmDirection.Vertical)
 			{
-				LinkedListNode<UIGridExItemCtrlBase> node2 = itemList.Last;
-				float bottom = clipRegion.y - clipRegion.w * 0.5f;
-				float padding = node2.Value.transform.localPosition.y - bottom;
-				delta.y = Mathf.Lerp(delta.y, 0, padding/MAX_PADDING);
-			}
-			else
-			{
-				LinkedListNode<UIGridExItemCtrlBase> node2 = itemList.First;
-				float top = clipRegion.y + clipRegion.w * 0.5f;
-				float padding = top - node2.Value.transform.localPosition.y;
+				if(delta.y < -cellHeight) delta.y = -cellHeight;
+				if(delta.y > cellHeight) delta.y = cellHeight;
 
-				//predict wether the first item will move below the padding line
-				float itemBottom = node2.Value.transform.localPosition.y + delta.y - cellHeight*0.5f;
-				if(itemBottom < top - MAX_PADDING)
-					delta.y = (top - MAX_PADDING) - (node2.Value.transform.localPosition.y - cellHeight*0.5f);
-
-				delta.y = Mathf.Lerp(delta.y, 0, padding/MAX_PADDING);
+				if(delta.y > 0)
+				{
+					//it is moving up
+					if(isFit)
+					{
+						//if it is fit, the toppest item can't move too faraway
+						LinkedListNode<UIGridExItemCtrlBase> node2 = itemList.First;
+						float paddingTop = node2.Value.top - clipRegionTop;
+						delta.y = Mathf.Lerp(delta.y, 0, paddingTop/MAX_PADDING);//the closer paddingTop to MAX_PADDING, the slower the darg speed will be.
+					}
+					else
+					{
+						//if it is not fit, the bottomest item can't move too faraway
+						LinkedListNode<UIGridExItemCtrlBase> node2 = itemList.Last;
+						float paddingBottom = node2.Value.bottom - clipRegionBottom;
+						delta.y = Mathf.Lerp(delta.y, 0, paddingBottom/MAX_PADDING);//the closer paddingBottom to MAXPADDING, the slower the darg speed will be.
+					}
+				}
+				else
+				{
+					//it is moving down, the first line can't move too faraway
+					LinkedListNode<UIGridExItemCtrlBase> node2 = itemList.First;
+					float paddingTop = clipRegionTop - node2.Value.top;
+					delta.y = Mathf.Lerp(delta.y, 0, paddingTop/MAX_PADDING);//the closer paddingTop to MAXPADDING, the slower the darg speed will be.
+				}
 			}
 		}
-
 
 		//update position
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
@@ -202,43 +295,88 @@ public class UIGridEx : MonoBehaviour
 
 	public void OnDragEnd()
 	{
-		if(lastDragDelta.y < 0)
-		{
-			LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
-			Vector4 clipRegion = clipPanel.finalClipRegion;
-			float top = clipRegion.y + clipRegion.w * 0.5f - cellHeight*0.5f;
-			springDist = top - node.Value.transform.localPosition.y;
-		}
+		bool enableSpring = false;
+
+		//if there is padding at top, then spring to top, no matter wether there is padding at bottom
+		LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
+		springDist = clipRegionTop - node.Value.top;
+		if(isFit)
+			enableSpring = true;//if it is fit, always spring the top item to fit top age
 		else
+			enableSpring = springDist > 0;
+
+		//if there is no padding at top, then consider of spring to bottom
+		if(!enableSpring)
 		{
-			LinkedListNode<UIGridExItemCtrlBase> node = itemList.Last;
-			Vector4 clipRegion = clipPanel.finalClipRegion;
-			float bottom = clipRegion.y - clipRegion.w * 0.5f + cellHeight*0.5f;
-			springDist = bottom - node.Value.transform.localPosition.y;
+			node = itemList.Last;
+			springDist = clipRegionBottom - node.Value.bottom;
+			if(springDist < 0)
+				enableSpring = true;
 		}
-		isSpring = true;
-		timer = 0;
-		preFrameSprintPos = 0;
+
+		//if there is no padding, spring one item to fit with the top or bottm edge
+		if(!enableSpring)
+		{
+			if(lastDragDelta.y < 0)
+			{
+				//it is moving down, spring the top item to fit with top edge
+				//we don't spring the bottom item, because it may make the first to far to top when there are last two items.
+				node = itemList.First;
+				//find the first one that partly visible
+				while(node != null)
+				{
+					if(node.Value.bottom < clipRegionTop && node.Value.top > clipRegionTop)
+					{
+						springDist = clipRegionTop - node.Value.top;
+						enableSpring = true;
+						break;
+					}
+					node = node.Next;
+				}
+			}
+			else
+			{
+				//it is moving up, spring the bottom item to fit with bottom edge
+				//we don't spring the top item, because it may make the last to far to bottom when there are last two items.
+				node = itemList.Last;
+				//find the last one that partly visible
+				while(node != null)
+				{
+					float distToBottom = clipRegionBottom - node.Value.bottom;
+					if(node.Value.bottom < clipRegionBottom && node.Value.top > clipRegionBottom)
+					{
+						springDist = clipRegionBottom - node.Value.bottom;
+						enableSpring = true;
+						break;
+					}
+					node = node.Previous;
+				}
+			}
+		}
+
+		if(enableSpring)
+		{
+			isSpring = true;
+			timer = 0;
+			preFrameSprintPos = 0;
+		}
 	}
 
-	//the line just out of the clip region is reserved, other lines will be recycled
+	//the line just out of the clip region will be recycled
 	void RecycleTop()
 	{
-		if(itemList.Count == 0) return;
+		if(itemList.Count == 0 || isFit) return;
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
 
-		int yIndex = node.Value.yIndex;
-		Vector4 clipRegion = clipPanel.finalClipRegion;
-		float top = clipRegion.y + clipRegion.w * 0.5f;
 		while(node != null)
 		{
-			if(node.Value.transform.localPosition.y > top + cellHeight * 1.5f)
+			if(node.Value.bottom > clipRegionTop)
 			{
 				node.Value.transform.localPosition =  new Vector3(float.MaxValue, 0, 0);
-				LinkedListNode<UIGridExItemCtrlBase> delNode = node;
+				LinkedListNode<UIGridExItemCtrlBase> recycleNode = node;
 				node = node.Next;
-				itemList.Remove(delNode);
-				cachedItemList.AddLast(delNode);// recycle it
+				itemList.Remove(recycleNode);
+				cachedItemList.AddLast(recycleNode);// recycle it
 				Debug.LogFormat("recycle top, item{0}, cachedItemCount = {1}", node.Value.index, cachedItemList.Count);
 			}
 			else
@@ -246,18 +384,15 @@ public class UIGridEx : MonoBehaviour
 		}
 	}
 
-	//the line just out of the clip region is reserved, other lines will be recycled.
+	//the line just out of the clip region will be recycled.
 	void RecyleBottom()
 	{
-		if(itemList.Count == 0) return;
+		if(itemList.Count == 0 || isFit) return;
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.Last;
 
-		int yIndex = node.Value.yIndex;
-		Vector4 clipRegion = clipPanel.finalClipRegion;
-		float bottom = clipRegion.y - clipRegion.w * 0.5f;
 		while(node != null)
 		{
-			if(node.Value.transform.localPosition.y < bottom - cellHeight * 1.5f)
+			if(node.Value.top < clipRegionBottom)
 			{
 				node.Value.transform.localPosition =  new Vector3(float.MaxValue, 0, 0);//move away
 				LinkedListNode<UIGridExItemCtrlBase> delNode = node;
@@ -271,58 +406,62 @@ public class UIGridEx : MonoBehaviour
 		}
 	}
 
-	//if the last line is just out side the region, then add new line after it.
+	//if the last line is visible, add new line after it.
 	void AddToBottom()
 	{
 		if(itemList.Count == 0) return;
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.Last;
 		if(node.Value.index == dataCount-1) return;
 		
-		Vector4 clipRegion = clipPanel.finalClipRegion;
-		float bottom = clipRegion.y - clipRegion.w * 0.5f;
-		if(node.Value.transform.localPosition.y > bottom - cellHeight * 0.5f)
+		if(node.Value.top > clipRegionBottom)
 		{
 			Vector3 pos = node.Value.transform.localPosition;//this node must be line end
 			pos.x = startPos.x;
-			pos.y -= cellHeight;
+			pos.y -= node.Value.halfHeight;//cur item's half height, and next item's half height
 			for(int i=1; i<=itemPerRow; i++)
 			{
 				UIGridExItemCtrlBase item = GetItem();
-				item.index = node.Value.index + i;
-				item.xIndex = i - 1;
-				item.yIndex = node.Value.yIndex;
+				item.Init(node.Value.index + i, i - 1, node.Value.yIndex + 1, cellWith, cellHeight, this);
+				item.SetData(userData);
+				item.Prepare();
+
+				if(i == 1)
+					pos.y -= item.halfHeight;//cur item's half height, and next item's half height
+
 				item.transform.localPosition = pos;
 				pos.x += cellWith;
-				item.SetData(userData);
 				itemList.AddLast(item);
 				Debug.Log("add to bottom " + cachedItemList.Count);
+
+				if(item.index == dataCount - 1)
+					break;
 			}
 		}
 	}
 
-	//if the last line is just out side the region, then add new line after it.
+	//if the last line is visible, then add new line after it.
 	void AddToTop()
 	{
 		if(itemList.Count == 0) return;
 		LinkedListNode<UIGridExItemCtrlBase> node = itemList.First;
 		if(node.Value.index == 0) return;
 
-		Vector4 clipRegion = clipPanel.finalClipRegion;
-		float top = clipRegion.y + clipRegion.w * 0.5f;
-		if(node.Value.transform.localPosition.y < top + cellHeight * 0.5f)
+		if(node.Value.bottom < clipRegionTop)
 		{
 			Vector3 pos = node.Value.transform.localPosition;//this node must be line begin
 			pos.x += cellWith*(itemPerRow-1);
-			pos.y += cellHeight;
+			pos.y += node.Value.halfHeight;//cur item's half height, and next item's half height
 			for(int i=0; i<itemPerRow; i++)
 			{
 				UIGridExItemCtrlBase item = GetItem();
-				item.index = node.Value.index - i - 1;
-				item.xIndex = itemPerRow - i - 1;
-				item.yIndex = node.Value.yIndex - 1;
+				item.Init(node.Value.index - i - 1, itemPerRow - i - 1, node.Value.yIndex - 1, cellWith, cellHeight, this);
+				item.SetData(userData);
+				item.Prepare();
+				if(i == 0)
+					pos.y += item.halfHeight;
+
 				item.transform.localPosition = pos;
 				pos.x -= cellWith;
-				item.SetData(userData);
 				itemList.AddFirst(item);
 				Debug.Log("add to top " + cachedItemList.Count);
 			}
