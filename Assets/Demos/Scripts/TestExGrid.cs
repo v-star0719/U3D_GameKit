@@ -3,7 +3,7 @@ using System.Collections;
 
 public class TestExGrid : MonoBehaviour
 {
-	public UIGridEx exGrid;
+	public UIExGrid exGrid;
 	public int itemCount = 5;
 	// Use this for initialization
 	void Start () {
