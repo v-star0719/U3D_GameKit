@@ -14,11 +14,12 @@ public class UIExGridItemCtrlBase : MonoBehaviour
 	public float height;////if the item height is variable, overwrite it in SetData
 
 	private UIExGrid exGrid;
+	private BoxCollider myCollider;
 
 	public float top { get { return transform.localPosition.y + height*0.5f; } }
 	public float bottom { get { return transform.localPosition.y - height*0.5f; } }
-	public float left { get { return transform.localPosition.x - height*0.5f; } }
-	public float right { get { return transform.localPosition.x + height*0.5f; } }
+	public float left { get { return transform.localPosition.x - width*0.5f; } }
+	public float right { get { return transform.localPosition.x + width*0.5f; } }
 	public float halfHeight;
 	public float halfWidth;
 
@@ -65,18 +66,34 @@ public class UIExGridItemCtrlBase : MonoBehaviour
 		UILabel label = GetComponentInChildren<UILabel>();
 		if(label != null)
 			label.text = string.Format("{0} ({1}, {2})", index, xIndex, yIndex);
-		if(exGrid.isVariableHeight)
+		if(exGrid.isVariableHeight && exGrid.direction == UIExGrid.EmDirection.Vertical)
 		{
 			height = Random.Range(exGrid.cellHeight, exGrid.cellHeight*5);
-			UISprite s = GetComponentInChildren<UISprite>();
-			if(s != null)
-				s.height = (int)height;
+		}
+		if(exGrid.isVariableWidth && exGrid.direction == UIExGrid.EmDirection.Horizontal)
+		{
+			width = Random.Range(exGrid.cellWith, exGrid.cellWith*5);
+		}
+
+		UISprite s = GetComponentInChildren<UISprite>();
+		if(s != null)
+		{
+			s.width = (int)width;
+			s.height = (int)height;
 		}
 	}
 
-	public void Prepare()
+	public void Cache()
 	{
 		halfWidth = width * 0.5f;
 		halfHeight = height * 0.5f;
+	}
+
+	public void SetBoxCollider()
+	{
+		if(myCollider == null)
+			myCollider = GetComponent<BoxCollider>();
+		if(myCollider != null)
+			myCollider.size = new Vector3(width, height, 0);
 	}
 }

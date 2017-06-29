@@ -3,8 +3,10 @@ using System.Collections;
 
 public class TestExGrid : MonoBehaviour
 {
-	public UIExGrid exGrid;
-	public int itemCount = 5;
+	public UIExGrid horzExGrid;
+	public int horzItemCount = 5;
+	public UIExGrid vertExGrid;
+	public int vertItemCount = 5;
 	// Use this for initialization
 	void Start () {
 	}
@@ -16,7 +18,8 @@ public class TestExGrid : MonoBehaviour
 		if(testBtn)
 		{
 			testBtn = false;
-			exGrid.SetGrid(itemCount, null);
+			vertExGrid.SetGrid(vertItemCount, null);
+			horzExGrid.SetGrid(horzItemCount, null);
 		}
 	}
 }

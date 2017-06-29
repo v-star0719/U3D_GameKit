@@ -23,7 +23,7 @@ public class UIExGridEditor : Editor
 		}
 		else
 		{
-			exGrid.itemPerCol = EditorGUILayout.IntField("itemPerCol", exGrid.itemPerRow);
+			exGrid.itemPerCol = EditorGUILayout.IntField("itemPerCol", exGrid.itemPerCol);
 			exGrid.isVariableWidth = EditorGUILayout.Toggle("isVariableWidth", exGrid.isVariableWidth);
 			exGrid.pivotHorz = (UIExGrid.EmPivotHorz)EditorGUILayout.EnumPopup("pivotHorz", exGrid.pivotHorz);
 		}

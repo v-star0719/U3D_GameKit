@@ -56,10 +56,14 @@ public class UIExGrid : MonoBehaviour
 
 	private bool isInited = false;
 	private Vector4 clipRegion;
-	private float clipRegionLeft;
-	private float clipRegionRight;
-	private float clipRegionTop;
-	private float clipRegionBottom;
+	[HideInInspector]
+	public float clipRegionLeft;
+	[HideInInspector]
+	public float clipRegionRight;
+	[HideInInspector]
+	public float clipRegionTop;
+	[HideInInspector]
+	public float clipRegionBottom;
 
 
 	private Vector3 startPos = Vector3.zero;
@@ -92,7 +96,10 @@ public class UIExGrid : MonoBehaviour
 		timer += Time.deltaTime;
 		float f = timer/SPRING_TIME;
 		f = springCurve.Evaluate(f)*springDist;
-		OnDrag(new Vector2(0, f - preFrameSprintPos));
+		if(direction == EmDirection.Vertical)
+			OnDrag(new Vector2(0, f - preFrameSprintPos));
+		else
+			OnDrag(new Vector2(f - preFrameSprintPos, 0));
 		preFrameSprintPos = f;
 
 		if(timer >= SPRING_TIME)
@@ -122,30 +129,37 @@ public class UIExGrid : MonoBehaviour
 	public void SetGrid(int _dataCount, System.Object _userData)
 	{
 		Init();
+		userData = _userData;
+		dataCount = _dataCount;
+		RecycleAllItems();
 
+
+		if(direction == EmDirection.Vertical)
+			SetGrid_Vert();
+		else
+			SetGrid_Horz();
+		
+	}
+
+	void SetGrid_Vert()
+	{
 		if(isVariableHeight && itemPerRow != 1)
 		{
 			itemPerRow = 1;
 			Debug.LogError("itemPerRow must be 1, if it is variable height");
 		}
 
-		userData = _userData;
-		dataCount = _dataCount;
-
-		RecycleAllItems();
-
-		
-
 		int xIndex = 0;
 		int yIndex = 0;
 		Vector3 pos = Vector3.zero;
-		bool isChaneLine = false;
-		for(int i=0; i<_dataCount; i++)
+		bool isChangeLine = false;
+		for(int i=0; i<dataCount; i++)
 		{
 			UIExGridItemCtrlBase item = GetItem();
 			item.Init(i, xIndex, yIndex, cellWith, cellHeight, this);
 			item.SetData(userData);
-			item.Prepare();
+			item.Cache();
+			item.SetBoxCollider();
 
 			//calculate start pos here, because in variable height mode, the first item's height is confirmed now
 			if(i == 0)
@@ -163,10 +177,10 @@ public class UIExGrid : MonoBehaviour
 				pos = startPos;
 			}
 
-			if(isChaneLine)
+			if(isChangeLine)
 			{
 				pos.y -= item.halfHeight;//cur item's half height, and next item's half height
-				isChaneLine = false;
+				isChangeLine = false;
 			}
 
 			item.transform.localPosition = pos;
@@ -185,7 +199,7 @@ public class UIExGrid : MonoBehaviour
 				pos.y -= item.halfHeight;//cur item's half height, and next item's half height
 				xIndex = 0;
 				yIndex++;
-				isChaneLine = true;
+				isChangeLine = true;
 
 				//if the last item's bottom is out of clip region, stop show item
 				if(item.bottom < clipRegionBottom)
@@ -198,6 +212,80 @@ public class UIExGrid : MonoBehaviour
 		{
 			UIExGridItemCtrlBase item = itemList.Last.Value;
 			isFit = item.bottom >= clipRegionBottom && itemList.Count == dataCount;
+		}
+	}
+
+	public void SetGrid_Horz()
+	{
+		if(isVariableWidth && itemPerCol != 1)
+		{
+			itemPerCol = 1;
+			Debug.LogError("itemPerCol must be 1, if it is variable width");
+		}
+
+		int xIndex = 0;
+		int yIndex = 0;
+		Vector3 pos = Vector3.zero;
+		bool isChangeLine = false;
+		for(int i=0; i<dataCount; i++)
+		{
+			UIExGridItemCtrlBase item = GetItem();
+			item.Init(i, xIndex, yIndex, cellWith, cellHeight, this);
+			item.SetData(userData);
+			item.Cache();
+			item.SetBoxCollider();
+
+			//calculate start pos here, because in variable with mode, the first item's width is confirmed just now
+			if(i == 0)
+			{
+				if(pivotHorz == EmPivotHorz.LeftCenter)
+				{
+					startPos.x = clipRegionLeft + item.halfWidth;
+					startPos.y = (itemPerCol - 1) * item.halfHeight;//it is:  itemPerCol * cellHeigth*0.5f - cellHeight * 0.5f;
+				}
+				else if(pivotHorz == EmPivotHorz.TopLeft)
+				{
+					startPos.x = clipRegionLeft + item.halfWidth;
+					startPos.y = clipRegionTop - item.halfHeight;
+				}
+				pos = startPos;
+			}
+
+			if(isChangeLine)
+			{
+				pos.x += item.halfWidth;//cur item's half width, and next item's half width
+				isChangeLine = false;
+			}
+
+			item.transform.localPosition = pos;
+			itemList.AddLast(item);
+
+			yIndex++;
+
+			//下一个item的位置
+			if(yIndex < itemPerCol)
+			{
+				pos.y -= item.height;
+			}
+			else
+			{
+				pos.x += item.halfWidth;//cur item's half width, and next item's half width
+				pos.y = startPos.y;
+				xIndex++;
+				yIndex = 0;
+				isChangeLine = true;
+
+				//if the last item's right is out of clip region, stop show item
+				if(item.right > clipRegionRight)
+					break;
+			}
+		}
+
+		isFit = false;
+		if(itemList.Count > 0)
+		{
+			UIExGridItemCtrlBase item = itemList.Last.Value;
+			isFit = item.right <= clipRegionRight && itemList.Count == dataCount;
 		}
 	}
 
@@ -238,44 +326,59 @@ public class UIExGrid : MonoBehaviour
 
 	public void OnDrag(Vector2 delta)
 	{
-		if(direction == EmDirection.Vertical && delta.y != 0)
-			lastDragDelta = delta;
+		if(direction == EmDirection.Vertical)
+			OnDrag_Vert(delta);
+		else
+			OnDrag_Horz(delta);
+	}
 
-		if(direction == EmDirection.Horizontal) delta.y = 0;
-		else if(direction == EmDirection.Vertical) delta.x = 0;
+	void OnDrag_Vert(Vector2 delta)
+	{
+		delta.x = 0;
+		if(delta.y != 0) lastDragDelta = delta;
 
 		if(!isSpring)
 		{
-			if(direction == EmDirection.Vertical)
+			if(delta.y > 0)
 			{
-				if(delta.y < -cellHeight) delta.y = -cellHeight;
-				if(delta.y > cellHeight) delta.y = cellHeight;
+				////clam the max delta.y to to item's top edge to bottom clip region edge
+				//if(!isFit)
+				//{
+				//	float maxY = clipRegionBottom - itemList.Last.Value.bottom;
+				//	if(maxY < 0) maxY = 0;
+				//	if(delta.y > maxY) delta.y = maxY;
+				//}
 
-				if(delta.y > 0)
+				//it is moving up
+				if(isFit)
 				{
-					//it is moving up
-					if(isFit)
-					{
-						//if it is fit, the toppest item can't move too faraway
-						LinkedListNode<UIExGridItemCtrlBase> node2 = itemList.First;
-						float paddingTop = node2.Value.top - clipRegionTop;
-						delta.y = Mathf.Lerp(delta.y, 0, paddingTop/MAX_PADDING);//the closer paddingTop to MAX_PADDING, the slower the darg speed will be.
-					}
-					else
-					{
-						//if it is not fit, the bottomest item can't move too faraway
-						LinkedListNode<UIExGridItemCtrlBase> node2 = itemList.Last;
-						float paddingBottom = node2.Value.bottom - clipRegionBottom;
-						delta.y = Mathf.Lerp(delta.y, 0, paddingBottom/MAX_PADDING);//the closer paddingBottom to MAXPADDING, the slower the darg speed will be.
-					}
+					//if it is fit, the toppest item can't move too faraway
+					LinkedListNode<UIExGridItemCtrlBase> node2 = itemList.First;
+					float paddingTop = node2.Value.top - clipRegionTop;
+					delta.y = Mathf.Lerp(delta.y, 0, paddingTop/MAX_PADDING);//the closer paddingTop to MAX_PADDING, the slower the darg speed will be.
 				}
 				else
 				{
-					//it is moving down, the first line can't move too faraway
-					LinkedListNode<UIExGridItemCtrlBase> node2 = itemList.First;
-					float paddingTop = clipRegionTop - node2.Value.top;
-					delta.y = Mathf.Lerp(delta.y, 0, paddingTop/MAX_PADDING);//the closer paddingTop to MAXPADDING, the slower the darg speed will be.
+					//if it is not fit, the bottomest item can't move too faraway
+					LinkedListNode<UIExGridItemCtrlBase> node2 = itemList.Last;
+					float paddingBottom = node2.Value.bottom - clipRegionBottom;
+					delta.y = Mathf.Lerp(delta.y, 0, paddingBottom/MAX_PADDING);//the closer paddingBottom to MAXPADDING, the slower the darg speed will be.
 				}
+			}
+			else
+			{
+				////clam the max delta.y to to item's top edge to bottom clip region edge
+				//if(!isFit)
+				//{
+				//	float maxY = clipRegionTop - itemList.First.Value.top;
+				//	if(maxY > 0) maxY = 0;
+				//	if(delta.y < maxY) delta.y = maxY;
+				//}
+
+				//it is moving down, the first line can't move too faraway
+				LinkedListNode<UIExGridItemCtrlBase> node2 = itemList.First;
+				float paddingTop = clipRegionTop - node2.Value.top;
+				delta.y = Mathf.Lerp(delta.y, 0, paddingTop/MAX_PADDING);//the closer paddingTop to MAXPADDING, the slower the darg speed will be.
 			}
 		}
 
@@ -287,20 +390,97 @@ public class UIExGrid : MonoBehaviour
 			node = node.Next;
 		}
 
-		//handle vertically move
 		if(delta.y > 0)//move up
 		{
-			RecycleTop();
+			RecycleTopOrLeft();
 			AddToBottom();
 		}
 		else
 		{
-			RecyleBottom();
+			RecyleBottomOrRight();
 			AddToTop();
 		}
 	}
 
+	void OnDrag_Horz(Vector2 delta)
+	{
+		delta.y = 0;
+		if(delta.x != 0) lastDragDelta = delta;
+
+		if(!isSpring)
+		{
+			if(delta.x < 0)
+			{
+				////clam the max delta.x to right item's right edge to right clip region edge
+				//if(!isFit)
+				//{
+				//	float maxX = clipRegionRight - itemList.Last.Value.right;
+				//	if(maxX > 0) maxX = 0;
+				//	if(delta.x < maxX) delta.x = maxX;
+				//}
+
+				//it is moving left
+				if(isFit)
+				{
+					//if it is fit, the leftest item can't move too faraway
+					LinkedListNode<UIExGridItemCtrlBase> node2 = itemList.First;
+					float paddingLeft = clipRegionLeft - node2.Value.left;
+					delta.x = Mathf.Lerp(delta.x, 0, paddingLeft/MAX_PADDING);//the closer paddingLeft to MAX_PADDING, the slower the darg speed will be.
+				}
+				else
+				{
+					//if it is not fit, the rightest item can't move too faraway
+					LinkedListNode<UIExGridItemCtrlBase> node2 = itemList.Last;
+					float paddingRight = clipRegionRight - node2.Value.right;
+					delta.x = Mathf.Lerp(delta.x, 0, paddingRight/MAX_PADDING);//the closer paddingRight to MAXPADDING, the slower the darg speed will be.
+				}
+			}
+			else
+			{
+				////clam the max delta.x to left item's left edge to left clip region edge
+				//if(!isFit)
+				//{
+				//	float maxX = clipRegionLeft - itemList.First.Value.left;
+				//	if(maxX < 0) maxX = 0;
+				//	if(delta.x > maxX) delta.x = maxX;
+				//}
+
+				//it is moving right, the first line can't move too faraway
+				LinkedListNode<UIExGridItemCtrlBase> node2 = itemList.First;
+				float paddingLeft = node2.Value.left - clipRegionLeft;
+				delta.x = Mathf.Lerp(delta.x, 0, paddingLeft/MAX_PADDING);//the closer paddingLeft to MAXPADDING, the slower the darg speed will be.
+			}
+		}
+
+		//update position
+		LinkedListNode<UIExGridItemCtrlBase> node = itemList.First;
+		while(node != null)
+		{
+			node.Value.transform.localPosition += new Vector3(delta.x, delta.y, 0);
+			node = node.Next;
+		}
+
+		if(delta.x < 0)//move left
+		{
+			RecycleTopOrLeft();
+			AddToRight();
+		}
+		else
+		{
+			RecyleBottomOrRight();
+			AddToLeft();
+		}
+	}
+
 	public void OnDragEnd()
+	{
+		if(direction == EmDirection.Vertical)
+			OnDragEnd_Vert();
+		else
+			OnDragEnd_Horz();
+	}
+
+	void OnDragEnd_Vert()
 	{
 		bool enableSpring = false;
 
@@ -349,7 +529,6 @@ public class UIExGrid : MonoBehaviour
 				//find the last one that partly visible
 				while(node != null)
 				{
-					float distToBottom = clipRegionBottom - node.Value.bottom;
 					if(node.Value.bottom < clipRegionBottom && node.Value.top > clipRegionBottom)
 					{
 						springDist = clipRegionBottom - node.Value.bottom;
@@ -369,49 +548,137 @@ public class UIExGrid : MonoBehaviour
 		}
 	}
 
+	void OnDragEnd_Horz()
+	{
+		bool enableSpring = false;
+
+		//if there is padding at left, then spring to left, no matter wether there is padding at right
+		LinkedListNode<UIExGridItemCtrlBase> node = itemList.First;
+		springDist = clipRegionLeft - node.Value.left;
+		if(isFit)
+			enableSpring = true;//if it is fit, always spring the left item to fit left edge
+		else
+			enableSpring = springDist < 0;
+
+		//if there is no padding at left, then consider of spring to right
+		if(!enableSpring)
+		{
+			node = itemList.Last;
+			springDist = clipRegionRight - node.Value.right;
+			if(springDist > 0)
+				enableSpring = true;
+		}
+
+		//if there is no padding, spring one item to fit with the left or right edge
+		if(!enableSpring)
+		{
+			if(lastDragDelta.x > 0)
+			{
+				//it is moving right, spring the left item to fit with left edge
+				//we don't spring the right item, because it may make the first to far to left when there are last two items.
+				node = itemList.First;
+				//find the first one that partly visible
+				while(node != null)
+				{
+					if(node.Value.left < clipRegionLeft && node.Value.right > clipRegionLeft)
+					{
+						springDist = clipRegionLeft - node.Value.left;
+						enableSpring = true;
+						break;
+					}
+					node = node.Next;
+				}
+			}
+			else
+			{
+				//it is moving left, spring the right item to fit with right edge
+				//we don't spring the left item, because it may make the last to far to right when there are last two items.
+				node = itemList.Last;
+				//find the last one that partly visible
+				while(node != null)
+				{
+					if(node.Value.left < clipRegionRight && node.Value.right > clipRegionRight)
+					{
+						springDist = clipRegionRight - node.Value.right;
+						enableSpring = true;
+						break;
+					}
+					node = node.Previous;
+				}
+			}
+		}
+
+		if(enableSpring)
+		{
+			isSpring = true;
+			timer = 0;
+			preFrameSprintPos = 0;
+		}
+	}
+
 	//the line just out of the clip region will be recycled
-	void RecycleTop()
+	void RecycleTopOrLeft()
 	{
 		if(itemList.Count == 0 || isFit) return;
 		LinkedListNode<UIExGridItemCtrlBase> node = itemList.First;
 
 		while(node != null)
 		{
-			if(node.Value.bottom > clipRegionTop)
+			bool recycle = false;
+			if(direction == EmDirection.Vertical)
+				recycle = node.Value.bottom > clipRegionTop;
+			else
+				recycle = node.Value.right < clipRegionLeft;
+
+			if(recycle)
 			{
 				node.Value.transform.localPosition =  new Vector3(float.MaxValue, 0, 0);
 				LinkedListNode<UIExGridItemCtrlBase> recycleNode = node;
 				node = node.Next;
 				itemList.Remove(recycleNode);
 				cachedItemList.AddLast(recycleNode);// recycle it
-				Debug.LogFormat("recycle top, item{0}, cachedItemCount = {1}", node.Value.index, cachedItemList.Count);
+				//if(direction == EmDirection.Vertical)
+				//	Debug.LogFormat("recycle top, item{0}, cachedItemCount = {1}", node.Value.index, cachedItemList.Count);
+				//else
+				//	Debug.LogFormat("recycle left, item{0}, cachedItemCount = {1}", node.Value.index, cachedItemList.Count);
 			}
 			else
 				break;
 		}
 	}
 
+
 	//the line just out of the clip region will be recycled.
-	void RecyleBottom()
+	void RecyleBottomOrRight()
 	{
 		if(itemList.Count == 0 || isFit) return;
 		LinkedListNode<UIExGridItemCtrlBase> node = itemList.Last;
 
 		while(node != null)
 		{
-			if(node.Value.top < clipRegionBottom)
+			bool recycle = false;
+			if(direction == EmDirection.Vertical)
+				recycle = node.Value.top < clipRegionBottom;
+			else
+				recycle = node.Value.left > clipRegionRight;
+
+			if(recycle)
 			{
 				node.Value.transform.localPosition =  new Vector3(float.MaxValue, 0, 0);//move away
 				LinkedListNode<UIExGridItemCtrlBase> delNode = node;
 				node = node.Previous;
 				itemList.Remove(delNode);
 				cachedItemList.AddLast(delNode);// recycle it
-				Debug.LogFormat("recycle bottom, item{0}, cachedItemCount = {1}", node.Value.index, cachedItemList.Count);
+				//if(direction == EmDirection.Vertical)
+				//	Debug.LogFormat("recycle bottom, item{0}, cachedItemCount = {1}", node.Value.index, cachedItemList.Count);
+				//else
+				//	Debug.LogFormat("recycle right, item{0}, cachedItemCount = {1}", node.Value.index, cachedItemList.Count);
 			}
 			else
 				break;
 		}
 	}
+
 
 	//if the last line is visible, add new line after it.
 	void AddToBottom()
@@ -430,7 +697,8 @@ public class UIExGrid : MonoBehaviour
 				UIExGridItemCtrlBase item = GetItem();
 				item.Init(node.Value.index + i, i - 1, node.Value.yIndex + 1, cellWith, cellHeight, this);
 				item.SetData(userData);
-				item.Prepare();
+				item.Cache();
+				item.SetBoxCollider();
 
 				if(i == 1)
 					pos.y -= item.halfHeight;//cur item's half height, and next item's half height
@@ -438,7 +706,7 @@ public class UIExGrid : MonoBehaviour
 				item.transform.localPosition = pos;
 				pos.x += cellWith;
 				itemList.AddLast(item);
-				Debug.Log("add to bottom " + cachedItemList.Count);
+				//Debug.Log("add to bottom " + cachedItemList.Count);
 
 				if(item.index == dataCount - 1)
 					break;
@@ -446,7 +714,7 @@ public class UIExGrid : MonoBehaviour
 		}
 	}
 
-	//if the last line is visible, then add new line after it.
+	//if the first line is visible, then add new line after it.
 	void AddToTop()
 	{
 		if(itemList.Count == 0) return;
@@ -463,14 +731,79 @@ public class UIExGrid : MonoBehaviour
 				UIExGridItemCtrlBase item = GetItem();
 				item.Init(node.Value.index - i - 1, itemPerRow - i - 1, node.Value.yIndex - 1, cellWith, cellHeight, this);
 				item.SetData(userData);
-				item.Prepare();
+				item.Cache();
+				item.SetBoxCollider();
 				if(i == 0)
 					pos.y += item.halfHeight;
 
 				item.transform.localPosition = pos;
 				pos.x -= cellWith;
 				itemList.AddFirst(item);
-				Debug.Log("add to top " + cachedItemList.Count);
+				//Debug.Log("add to top " + cachedItemList.Count);
+			}
+		}
+	}
+
+	//if the first line is visible, then add new line after it.
+	void AddToLeft()
+	{
+		if(itemList.Count == 0) return;
+		LinkedListNode<UIExGridItemCtrlBase> node = itemList.First;
+		if(node.Value.index == 0) return;
+
+		if(node.Value.right > clipRegionLeft)
+		{
+			Vector3 pos = node.Value.transform.localPosition;//this node must be line begin
+			pos.x -= node.Value.halfWidth;//cur item's half width, and next item's half width
+			pos.y -= cellHeight*(itemPerCol-1);
+			for(int i=0; i<itemPerCol; i++)
+			{
+				UIExGridItemCtrlBase item = GetItem();
+				item.Init(node.Value.index - i - 1, node.Value.xIndex - 1, itemPerCol - i - 1, cellWith, cellHeight, this);
+				item.SetData(userData);
+				item.Cache();
+				item.SetBoxCollider();
+				if(i == 0)
+					pos.x -= item.halfWidth;
+
+				item.transform.localPosition = pos;
+				pos.y += cellHeight;
+				itemList.AddFirst(item);
+				//Debug.Log("add to left " + cachedItemList.Count);
+			}
+		}
+	}
+
+	//if the last line is visible, add new line after it.
+	void AddToRight()
+	{
+		if(itemList.Count == 0) return;
+		LinkedListNode<UIExGridItemCtrlBase> node = itemList.Last;
+		if(node.Value.index == dataCount-1) return;
+
+		if(node.Value.left < clipRegionRight)
+		{
+			Vector3 pos = node.Value.transform.localPosition;//this node must be line end
+			pos.x += node.Value.halfWidth;//cur item's half width, and next item's half width
+			pos.y = startPos.y;
+			for(int i=1; i<=itemPerCol; i++)
+			{
+				UIExGridItemCtrlBase item = GetItem();
+				item.Init(node.Value.index + i, node.Value.xIndex + 1, i - 1, cellWith, cellHeight, this);
+				item.SetData(userData);
+				item.Cache();
+				item.SetBoxCollider();
+
+				if(i == 1)
+					pos.x += item.halfWidth;//cur item's half width, and next item's half width
+
+				item.transform.localPosition = pos;
+				pos.y -= cellHeight;
+				itemList.AddLast(item);
+				//Debug.Log("add to right " + cachedItemList.Count);
+
+				if(item.index == dataCount - 1)
+					break;
 			}
 		}
 	}
