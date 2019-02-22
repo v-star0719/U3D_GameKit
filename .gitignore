@@ -1,6 +1,10 @@
 BuildPackages/
 Library/**
 Temp/
+Packages/
+obj/
+.vs/
+.git/
 
 *.csproj
 *.sln

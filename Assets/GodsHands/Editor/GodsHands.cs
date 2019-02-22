@@ -92,7 +92,7 @@ public class GodsHands : EditorWindow
 	void OpenInspectorFunction<T>(string name) where T : MonoBehaviour
 	{
 		GameObject godsHands = GetGodsHands();
-		Transform funcTrans = godsHands.transform.FindChild(name);
+		Transform funcTrans = godsHands.transform.Find(name);
 		if(funcTrans == null)
 		{
 			GameObject go = new GameObject(name);
@@ -139,7 +139,7 @@ public class GodsHands : EditorWindow
 	void CloseInspectorFunction(string functionName)
 	{
 		GameObject godsHands = GetGodsHands();
-		Transform trans = godsHands.transform.FindChild(functionName);
+		Transform trans = godsHands.transform.Find(functionName);
 		if(trans != null)
 			DestroyImmediate(trans.gameObject);
 	}
@@ -159,7 +159,7 @@ public class GodsHands : EditorWindow
 	bool IsInspectorFunctionOpened(string functionName, bool isUI)
 	{
 		GameObject godsHands = GetGodsHands();
-		return godsHands.transform.FindChild(functionName);
+		return godsHands.transform.Find(functionName);
 	}
 
 	Transform GetUIFunction(string functionName)
