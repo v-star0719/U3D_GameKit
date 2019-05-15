@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using SLua;
 using UnityEditor;
 using UnityEngine;
 
@@ -66,7 +67,7 @@ public class ExportUnityAPIToEmmyLua : MonoBehaviour {
 			File.WriteAllText(path + "/" + t.Namespace + "." + t.Name + ".lua", sb.ToString(), Encoding.UTF8);
 		}
 
-		Debug.LogError(t.Name);
+		Debug.Log(t.Name);
 	}
 
 	private static void ExportFields(Type t, StringBuilder sb)
@@ -74,7 +75,13 @@ public class ExportUnityAPIToEmmyLua : MonoBehaviour {
 		var fields = t.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
 		foreach (var f in fields)
 		{
-			sb.AppendFormat("---@field {0} {1} {2}\n", f.Name, GetLuaTypeName(f.FieldType), f.IsStatic ? "@[static]" : "");
+		    //忽略已弃用的
+		    if(t.GetCustomAttributes(typeof(ObsoleteAttribute), true).Length > 0)
+		    {
+		        continue;
+		    }
+
+            sb.AppendFormat("---@field {0} {1} {2}\n", f.Name, GetLuaTypeName(f.FieldType), f.IsStatic ? "@[static]" : "");
 		}
 	}
 
@@ -83,7 +90,13 @@ public class ExportUnityAPIToEmmyLua : MonoBehaviour {
 		var properties = t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
 		foreach(var p in properties)
 		{
-			sb.AppendFormat("---@field {0} {1}\n", p.Name, GetLuaTypeName(p.PropertyType));
+		    //忽略已弃用的
+		    if(p.GetCustomAttributes(typeof(ObsoleteAttribute), true).Length > 0)
+		    {
+		        continue;
+		    }
+
+            sb.AppendFormat("---@field {0} {1}\n", p.Name, GetLuaTypeName(p.PropertyType));
 		}
 	}
 
@@ -96,6 +109,12 @@ public class ExportUnityAPIToEmmyLua : MonoBehaviour {
 			{
 				continue;
 			}
+
+            //忽略已弃用的
+		    if (m.GetCustomAttributes(typeof(ObsoleteAttribute), true).Length > 0)
+		    {
+                continue;
+		    }
 
 			var parameters = m.GetParameters();
 			var parameterString = "";
@@ -133,7 +152,19 @@ public class ExportUnityAPIToEmmyLua : MonoBehaviour {
 			return false;
 		}
 
-		return true;
+	    //忽略已弃用的
+	    if(t.GetCustomAttributes(typeof(ObsoleteAttribute), true).Length > 0)
+	    {
+	        return false;
+	    }
+
+        //忽略从Lua导出的
+	    if (t.Name.StartsWith("Lua_"))
+	    {
+	        return false;
+	    }
+
+	    return true;
 	}
 
 	private static string GetLuaTypeName(Type t)
