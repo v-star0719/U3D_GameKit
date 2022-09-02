@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using GameKit;
 
 //主要是从AssetBoundle载入的二进制形式的文本资源
 public class BinaryTextAsset

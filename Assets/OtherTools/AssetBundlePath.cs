@@ -1,6 +1,8 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using GameKit;
+
 #pragma warning disable 0162
 //public class PlatformManager 
 //{	

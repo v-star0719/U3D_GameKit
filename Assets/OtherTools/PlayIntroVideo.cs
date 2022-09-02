@@ -2,13 +2,15 @@
 //using UnityEngine.SceneManagement;
 using System.Collections;
 
+namespace GameKit
+{
 public class PlayIntroVideo : MonoBehaviour
 {
 
 	// Use this for initialization
 	void Start ()
 	{
-		VideoPlayer.PlayIntroVideo(OnIntroVideoPlayEnd);
+		CustomVideoPlayer.PlayIntroVideo(OnIntroVideoPlayEnd);
 	}
 
 	void OnIntroVideoPlayEnd()
@@ -16,4 +18,5 @@ public class PlayIntroVideo : MonoBehaviour
 		Application.LoadLevel("Game");
 		//SceneManager.LoadScene("Game");
 	}
+}
 }

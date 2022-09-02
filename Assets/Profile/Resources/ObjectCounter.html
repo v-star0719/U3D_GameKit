@@ -1,0 +1,130 @@
+<html>
+    <head>
+		<link rel="stylesheet" type="text/css" href="/jquery.dataTables.min.css">
+
+        <script src="/jquery-1.11.2.min.js"></script>
+        <script src="/Chart.min.js"></script>
+        <script src="/jquery.dynatable.js"></script>
+        <script src="/jquery.dataTables.min.js"></script>
+        <title>Object Counter</title>
+    </head>
+
+    <body>
+        <h1>Object Counter</h1>
+        <hr />
+        <input type="button" value="Take Snapshot" id="countButton" />
+<!--        <canvas id="objectChart" width="1024" height="2048"></canvas> -->
+        <div id="objectTableRoot">
+        <table id="objectTable">
+        </table>
+        </div>
+        <script type="text/javascript">
+            var snapshots = { }; 
+            var snapshotGeneration = 0;
+//            var ctx = $('#objectChart').get(0).getContext('2d');
+            var rawTableHtml = $('#objectTableRoot').html()
+
+            function updateSnapshot(resp)
+            {
+                for (var key in resp)
+                {
+                    if (key in snapshots)
+                    {
+                        snapshots[key].push(resp[key]);
+                    }
+                    else
+                    {
+                        snapshots[key] = [];
+                        for (var i = 0; i < snapshotGeneration; ++i) 
+                        {
+                            snapshots[key].push(0); 
+                        }
+
+                        snapshots[key].push(resp[key]);
+                    }
+                }
+
+                for (var key in snapshots)
+                {
+                    if (!(key in resp))
+                    {
+                        snapshots[key][snapshotGeneration] = 0;
+                    }
+                }
+
+                ++snapshotGeneration;
+            }
+
+
+            function updateTable()
+            {
+                var data = [];
+                for (var key in snapshots)
+                {
+                    var row = { 'type' : key};
+                    for (var i = 0; i < snapshots[key].length; ++i)
+                    {
+                        row[String(i)] = snapshots[key][i];
+                    }
+
+                    data.push(row);
+                }
+
+                console.log(data);
+
+                var columns = [{ data: 'type' }];
+                for (var i = 0; i < snapshotGeneration; ++i)
+                {
+                    columns.push({ data: String(i) });
+                }
+
+                console.log(columns);
+                $('#objectTableRoot').html(rawTableHtml);
+                $('#objectTable').DataTable({ data: data, columns: columns});
+            }
+
+
+            function updateChart()
+            {
+                var datasets = [];
+                for (var key in snapshots)
+                {
+                    var dataset = {};
+                    dataset['label'] = key;
+                    dataset['data'] = snapshots[key];
+                    datasets.push(dataset);
+                }
+
+                var labels = [];
+                for (var i = 0; i < snapshotGeneration; ++i)
+                {
+                    labels.push(String(i));
+                }
+
+                objChart = new Chart(ctx).Line({ 'labels':labels, 'datasets':datasets },
+                                               { 
+                                                 datasetFill: false,
+                                                 legendTemplate: '<%= name %>',
+                                                 tooltipTemplate:  "<%= label %>: <%= value %>",
+                                                 multiTooltipTemplate: "<%= label %>: <%= value %>"
+                                               });
+            }
+
+
+            $('#countButton').click(function(event) {
+                $.getJSON('/api/get-count', function(resp) {
+                    $.each(resp, function(key, value) {
+                        console.log(key + ": " + value);
+                    });
+                    updateSnapshot(resp);
+                    updateTable();
+                    if (snapshotGeneration > 1)
+                    {
+//                        updateChart();
+                    }
+                });
+            });
+        </script>
+    </body>
+</html>
+
